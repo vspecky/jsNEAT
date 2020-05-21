@@ -20,7 +20,7 @@ class NodeGene {
     }
 
     activate() {
-        if (!this.activation) return;
+        if (this.layer === 1) return;
 
         switch (this.activation) {
             case 'relu':
@@ -40,7 +40,9 @@ class NodeGene {
         this.activate();
 
         this.connections.forEach(connection => {
-            connection.toNode.value += this.value * connection.weight;
+            if (connection.enabled) {
+                connection.toNode.value += this.value * connection.weight;
+            }
         });
     }
 }
