@@ -12,6 +12,9 @@ Population Settings:
         weightShiftMagnitude: Float (0, ...)
         weightMutationRate: Float [0, 1]
 
+    Crossover:
+        geneEnableProb: [0, 1]
+
     Speciation:
         disjointCoefficient: Float (0, ...)
         excessCoefficient: Float (0, ...)
@@ -27,6 +30,7 @@ const defaultSettings = {
     weightShiftRate: 0.5,
     weightShiftMagnitude: 0.01,
     weightMutationRate: 0.2,
+    geneEnableProb: 0.25,
     disjointCoefficient: 1,
     excessCoefficient: 1,
     weightCoefficient: 1,
