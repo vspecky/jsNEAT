@@ -9,6 +9,7 @@ class Genome {
         this.biasNode = new NodeGene(inputs + 1, 1);
         this.totalLayers = 2;
         this.fitness = 0;
+        this.speciesID = -1;
 
         // Create input nodes
         for (let i = 1; i <= inputs; i++) {
@@ -156,7 +157,19 @@ class Genome {
         return offspring;
     }
 
-    static crossover(parent1, parent2, geneEnableProb) {
+    /**
+     * Genome crossover method. Takes two Parent Genomes and returns the Genetic
+     * Information of the Offspring Genome.
+     * NOTE: Only the Genetic Information is returned. To build the offspring Genome,
+     * use the Genome.build() static method.
+     *
+     * @static
+     * @param {Genome} parent1 The first parent.
+     * @param {Genome} parent2 The second parent.
+     * @param {number} disabledGeneEnableProb The probability of a matching gene being enabled if it's disabled in both Parent Genomes.
+     * @memberof Genome
+     */
+    static crossover(parent1, parent2, disabledGeneEnableProb) {
         let male;
         let female;
 
@@ -172,5 +185,168 @@ class Genome {
         }
 
         const offspringGenes = [];
+
+        const maleGenes = male.allConnections;
+        const femaleGenes = female.allConnections;
+
+        let pt1 = 0;
+        let pt2 = 0;
+
+        while (pt1 < maleGenes.length && pt2 < femaleGenes.length) {
+            const gene1 = maleGenes[pt1];   // Male gene
+            const gene2 = femaleGenes[pt2]; // Female gene
+
+            /*
+                If both Innovation Numbers match, select the gene passed randomly from
+                both parents.
+                If the gene is disabled in both parents, there is a small chance of it being
+                enabled in the offspring, denoted by the 'disabledGeneEnableProb' argument.
+            */
+            if (gene1.innovationNumber == gene2.innovationNumber) {
+                const passedGene = Math.random() <= 0.5 ? gene1 : gene2;
+
+                const childGene = new ConnectionHistory(
+                    passedGene.innovationNumber,
+                    passedGene.fromNode.innovationNumber,
+                    passedGene.toNode.innovationNumber,
+                    passedGene.weight,
+                    passedGene.enabled
+                );
+
+                if (!gene1.enabled && !gene2.enabled && Math.random() <= disabledGeneEnableProb) {
+                    childGene.enable();
+                }
+
+                offspringGenes.push(childGene);
+
+                const maleGenesEnd = pt1 === maleGenes.length - 1;
+                const femaleGenesEnd = pt2 === femaleGenes.length - 1;
+
+                if (maleGenesEnd && femaleGenesEnd) break;
+                if (!maleGenesEnd) pt1++;
+                if (!femaleGenesEnd) pt2++;
+
+            }    
+            /*
+                If the Innovation Number of the Male gene is higher than that of the Female gene
+                then we have two possibilities :-
+                1) If we have reached the end of the Female genes, the Male gene in question is
+                   an excess gene. Since the Male Genome has higher fitness, include this gene.
+                   Also increment pt1 to account for additional Male excess genes.
+                2) If we have not reached the end of the Female Genes then the Female gene is a
+                   disjoint gene. We don't know whether the Male gene at this point is matching,
+                   disjoint or excess, so just increment pt2 for now.
+            */
+            else if (gene1.innovationNumber > gene2.innovationNumber) {
+                if (p2 === femaleGenes.length - 1) {
+                    const passedGene = gene1;
+
+                    const childGene = new ConnectionHistory(
+                        passedGene.innovationNumber,
+                        passedGene.fromNode.innovationNumber,
+                        passedGene.toNode.innovationNumber,
+                        passedGene.weight,
+                        passedGene.enabled
+                    );
+
+                    offspringGenes.push(childGene);
+                    pt1++;
+
+                } else {
+                    pt2++;
+                }
+            }
+            /*
+                If the Innovation Number of the Female gene is higher than the Male gene then we
+                again have two possibilities :-
+                1) If we have reached the end of the Male genes, then all the remaining Female genes
+                   are excess genes, hence break the loop here.
+                2) If we have not reached the end of the Male Genes then we have a disjoint Male Gene.
+                   Include it in the offspring and increment pt1.
+            */
+            else {
+                if (p1 === maleGenes.length - 1) break;
+
+                const passedGene = gene1;
+
+                const childGene = new ConnectionHistory(
+                    passedGene.innovationNumber,
+                    passedGene.fromNode.innovationNumber,
+                    passedGene.toNode.innovationNumber,
+                    passedGene.weight,
+                    passedGene.enabled
+                );
+
+                offspringGenes.push(childGene);
+                pt1++;
+            }
+        }
+
+        return offspringGenes;
+    }
+
+    /**
+     * Sets the Species of the Genome.
+     *
+     * @param {number} speciesID The ID of the Species.
+     * @memberof Genome
+     */
+    setSpecies(speciesID) {
+        this.speciesID = speciesID;
+    }
+
+    /**
+     * Mutates a new connection within the Genome.
+     *
+     * @param {InnovationHistory} innovationHistory The history of Innovation.
+     * @param {number} [times=1] The number of times the function has been called. Do not supply this argument to the function.
+     * @memberof Genome
+     */
+    mutateConnection(innovationHistory, times=1) {
+        // If we have tried 5 times then fuck it.
+        if (times === 6) return;
+
+        // Select a From Node randomly
+        let fromNode = this.nodes[Math.floor(Math.random() * this.nodes.length)];
+
+        // And keep selecting it until we get a node that's not in the last layer (Output layer)
+        while (fromNode.layer === this.totalLayers) {
+            fromNode = this.nodes[Math.floor(Math.random() * this.nodes.length)];
+        }
+
+        /*
+            Once the From node is selected, we need to select a To node. Here we create an
+            array of valid To nodes. We want nodes that are in a layer greater than that of
+            the From node and also aren't already connected to the From node.
+        */
+        const toNodeOptions = this.nodes.filter(node => node.layer > fromNode.layer)
+                                .filter(node => !this.allConnections.find(conn => conn.fromNode === fromNode && conn.toNode === node));
+
+        // If no valid To nodes are found, rerun the function with the times value incremented.
+        if (toNodeOptions.length === 0) {
+            return this.addConnection(innovationHistory, times + 1);
+        }
+
+        // Randomly choose a To node from the options.
+        let toNode = toNodeOptions[Math.floor(Math.random() * toNodeOptions.length)];
+
+        // Get the Connection Gene with the correct Innovation Number.
+        const conn = innovationHistory.addConnection(fromNode, toNode);
+
+        // Add the Connection Gene to the genome.
+        if (fromNode === this.biasNode) {
+            this.biasConnections.push(conn);
+
+        } else {
+            this.connections.push(conn);
+        }
+
+        this.allConnections.push(conn);
+    }
+
+    mutateNode(innovationHistory) {
+        if (this.connections.length === 0) return;
+
+        
     }
 }

@@ -1,7 +1,22 @@
 class Species {
-    constructor(genomes) {
-        this.genomes = genomes;
+    constructor(genome, speciesID) {
+        this.genomes = [genome];
+        this.maxFitness = genome.fitness;
+        this.avgFitness = genome.fitness;
+        this.speciesID = speciesID;
+        genome.setSpecies(speciesID);
         this.setRepresentative();
+    }
+
+    /**
+     * Adds a Genome to the Species.
+     *
+     * @param {Genome} genome
+     * @memberof Species
+     */
+    addGenome(genome) {
+        genome.setSpecies(this.speciesID);
+        this.genomes.push(genome);
     }
 
     setRepresentative() {
@@ -61,10 +76,14 @@ class Species {
             (weightFactor * weightDifference);
 
         if (delta < speciationThreshold) {
-            this.genomes.push(genome);
+            this.addGenome(genome);
             return true;
         }
 
         return false;
+    }
+
+    sortGenomes() {
+        this.genomes = this.genomes.sort((a, b) => b.fitness - a.fitness);
     }
 }
