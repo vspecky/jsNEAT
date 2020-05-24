@@ -21,4 +21,14 @@ class ConnectionGene {
     toggle() {
         this.enabled = !this.enabled;
     }
+
+    mutateWeight(settings) {
+        if (Math.random() < settings.weightShiftRate) {
+            const mag = settings.weightShiftMagnitude;
+            this.weight += Math.random() < 5 ? mag : -mag;
+
+        } else {
+            this.weight = Math.random();
+        }
+    }
 }

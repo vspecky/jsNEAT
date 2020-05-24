@@ -4,7 +4,7 @@ class NodeGene {
         this.layer = layer;
         this.connections = connections;
         this.value = 0;
-        this.activation = 'relu';
+        this.activation = 'sigmoid';
     }
 
     equals(other) {

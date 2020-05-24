@@ -1,10 +1,8 @@
 class ConnectionHistory {
-    constructor(innovationNumber, from, to, weight=undefined, enabled=undefined) {
+    constructor(innovationNumber, from, to) {
         this.innovationNumber = innovationNumber;
         this.from = from;
         this.to = to;
-        this.weight = weight;
-        this.enabled = enabled;
     }
 
     enable() {

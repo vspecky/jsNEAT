@@ -8,9 +8,10 @@ Population Settings:
     Mutation:
         connectionMutationRate: Float [0, 1]
         nodeMutationRate: Float [0, 1]
+        weightMutationRate: Float [0, 1]
         weightShiftRate: Float [0, 1]
         weightShiftMagnitude: Float (0, ...)
-        weightMutationRate: Float [0, 1]
+        weightRandomizationRate: Float [0, 1]
 
     Crossover:
         disabledGeneEnableProb: [0, 1]
@@ -28,9 +29,9 @@ const defaultSettings = {
     populationSize: 100,
     connectionMutationRate: 0.2,
     nodeMutationRate: 0.02,
-    weightShiftRate: 0.5,
-    weightShiftMagnitude: 0.01,
-    weightMutationRate: 0.2,
+    weightMutationRate: 0.8,
+    weightShiftRate: 0.9,
+    weightShiftMagnitude: 0.1,
     disabledGeneEnableProb: 0.25,
     disjointCoefficient: 1,
     excessCoefficient: 1,
