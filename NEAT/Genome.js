@@ -29,11 +29,12 @@ class Genome {
      * Throws an error if the number of input values given dont match the number of input
      * values of the neural network.
      *
-     * @param {number[]} inputValues
+     * @param {number[]} inputValues Array of input values.
+     * @param {string} [option='raw'] Whether to return rw input values, argmax or argmin.
      * @returns Output values
      * @memberof Genome
      */
-    feedForward(inputValues) {
+    deduce(inputValues, option='raw') {
         if (inputValues.length !== this.inputs) {
             const err = `Expected ${this.inputs} input values. Got ${inputValues.length}.`;
             throw new Error(err);
@@ -65,7 +66,38 @@ class Genome {
             outputValues.push(this.nodes[i].value);
         }
 
-        return outputValues;
+        if (!['raw', 'argmax', 'argmin'].includes(option)) {
+            const err = `Expected one of 3 options (raw, argmax, argmin). Got ${option}.`;
+            throw new Error(err);
+        }
+
+        if (option === 'argmax') {
+            let maxVal = -(Infinity);
+            let idx = -1;
+
+            for (let i = 0; i < outputValues.length; i++) {
+                if (outputValues[i] > maxVal) {
+                    maxVal = outputValues[i];
+                    idx = i;
+                }
+            }
+
+            return idx;
+
+        } else if (option === 'argmin') {
+            let minVal = Infinity;
+            let idx = -1;
+
+            for (let i = 0; i < outputValues.length; i++) {
+                if (outputValues[i] < minVal) {
+                    minVal = outputValues[i];
+                    idx = i;
+                }
+            }
+
+            return idx;
+
+        } else return outputValues;
     }
 
     /**
@@ -147,10 +179,10 @@ class Genome {
      * @static
      * @param {Genome} parent1 The first parent.
      * @param {Genome} parent2 The second parent.
-     * @param {number} disabledGeneEnableProb The probability of a matching gene being enabled if it's disabled in both Parent Genomes.
+     * @param {Object} settings Neat Settings.
      * @memberof Genome
      */
-    static crossover(parent1, parent2, disabledGeneEnableProb) {
+    static crossover(parent1, parent2, settings) {
         let male;
         let female;
 
@@ -196,7 +228,7 @@ class Genome {
                     passedGene.toNode.layer
                 );
 
-                if (!gene1.enabled && !gene2.enabled && Math.random() <= disabledGeneEnableProb) {
+                if (!gene1.enabled && !gene2.enabled && Math.random() <= settings.disabledGeneEnableProb) {
                     childGene.enable();
                 }
 
@@ -366,6 +398,14 @@ class Genome {
         this.connections.push(conn1, conn2);
     }
 
+    /**
+     * Mutates the Genome. Includes weight mutation, Node mutation and Connection
+     * mutation.
+     *
+     * @param {InnovationHistory} innovationHistory The history of Innovation.
+     * @param {Object} settings Neat Settings.
+     * @memberof Genome
+     */
     mutate(innovationHistory, settings) {
         const rand = Math.random;
 

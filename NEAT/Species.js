@@ -5,7 +5,8 @@ class Species {
         this.avgFitness = genome.fitness;
         this.speciesID = speciesID;
         genome.setSpecies(speciesID);
-        this.setRepresentative();
+        this.stagnancy = 0;
+        this.representative = genome;
     }
 
     /**
@@ -19,19 +20,16 @@ class Species {
         this.genomes.push(genome);
     }
 
-    setRepresentative() {
-        this.representative = this.genomes[Math.floor(Math.random() * this.genomes.length)];
-    }
-
-    maybeAccomodate(genome, speciationThreshold, disjointFactor, excessFactor, weightFactor) {
-        const genome1 = this.representative.allConnections;
-        const genome2 = genome.allConnections;
+    maybeAccomodate(genome, settings) {
+        const genome1 = this.representative.connections;
+        const genome2 = genome.connections;
 
         let p1 = 0;
         let p2 = 0;
         let disjointGenes = 0;
         let excessGenes = 0;
         let weightDifference = 0;
+        let matchingGenes = 0;
 
         while (p1 < genome1.length && p2 < genome2.length) {
             const gene1 = genome1[p1];
@@ -39,6 +37,7 @@ class Species {
 
             if (gene1.innovationNumber === gene2.innovationNumber) {
                 weightDifference += Math.abs(gene1.weight - gene2.weight);
+                matchingGenes++;
                 
                 const p1Last = p1 === genome1.length - 1;
                 const p2Last = p2 === genome2.length - 1;
@@ -69,21 +68,78 @@ class Species {
             }
         }
 
+        if (matchingGenes === 0) return false;
+
+        const a = settings.disjointFactor;
+        const b = settings.excessFactor;
+        const c = settings.weightFactor;
+
         const maxGenes = Math.max(genome1.length, genome2.length);
         const N = maxGenes > 20 ? maxGenes : 1;
-        const delta = (disjointFactor * disjointGenes / N) +
-            (excessFactor * excessGenes / N) +
-            (weightFactor * weightDifference);
+        const delta = (a * disjointGenes / N) +
+            (b * excessGenes / N) +
+            (c * weightDifference / matchingGenes);
 
-        if (delta < speciationThreshold) {
-            this.addGenome(genome);
-            return true;
-        }
-
-        return false;
+        return delta <= settings.speciationThreshold;
     }
 
     sortGenomes() {
         this.genomes = this.genomes.sort((a, b) => b.fitness - a.fitness);
+    }
+
+    updateStagnancy() {
+        if (this.genomes[0].fitness >= this.maxFitness) {
+            this.stagnancy = 0;
+            this.maxFitness = this.genomes[0].fitness;
+            this.representative = this.genomes[0];
+
+        } else {
+            this.stagnancy++;
+        }
+    }
+
+    setRepresentative() {
+        this.representative = this.genomes[0];
+    }
+
+    calculateAvgFitness() {
+        let totalFitness = 0;
+
+        this.genomes.forEach(genome => {
+            genome.fitness /= this.genomes.length;
+            totalFitness += genome.fitness;
+        });
+
+        this.avgFitness = totalFitness / this.genomes.length;
+    }
+
+    reproduce(innovationHistory, settings) {
+        const parent1 = this.selectParent();
+        const parent2 = Math.random() < settings.onlyMutationRate
+                        ? parent1
+                        : this.selectParent();
+
+        const offspringGenes = Genome.crossover(parent1, parent2, settings);
+        const offspring = Genome.build(parent1.inputs, parent1.outputs, offspringGenes);
+
+        offspring.mutate(innovationHistory, settings);
+
+        return offspring;
+    }
+
+    selectParent() {
+        let sumFitness = 0;
+        this.genomes.forEach(genome => sumFitness += genome.fitness);
+
+        const threshold = Math.random() * sumFitness;
+
+        let current = 0;
+
+        for (const genome of this.genomes) {
+            current += genome.fitness;
+            if (current >= threshold) {
+                return genome;
+            }
+        }
     }
 }

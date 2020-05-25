@@ -10,18 +10,39 @@ class ConnectionGene {
         this.fromNode.connections.push(this);
     }
 
+    /**
+     * Enable this connection.
+     *
+     * @memberof ConnectionGene
+     */
     enable() {
         this.enabled = true;
     }
 
+    /**
+     * Disable this connection.
+     *
+     * @memberof ConnectionGene
+     */
     disable() {
         this.enabled = false;
     }
 
+    /**
+     * Toggle this connection.
+     *
+     * @memberof ConnectionGene
+     */
     toggle() {
         this.enabled = !this.enabled;
     }
 
+    /**
+     * Mutate the Weight of this connection.
+     *
+     * @param {Object} settings
+     * @memberof ConnectionGene
+     */
     mutateWeight(settings) {
         if (Math.random() < settings.weightShiftRate) {
             const mag = settings.weightShiftMagnitude;
