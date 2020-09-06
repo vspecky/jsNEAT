@@ -1,27 +1,69 @@
 class Genome {
-    constructor(inputs, outputs) {
+    constructor(inputs, outputs, crossover = false) {
         this.inputs = inputs;
         this.outputs = outputs;
         this.nodes = [];
-        this.connections = [];
-        this.biasNode = new NodeGene(inputs + 1, 1);
-        this.totalLayers = 2;
+        this.conns = [];
         this.fitness = 0;
-        this.speciesID = -1;
+
+        if (crossover) return;
+
+        let dy = 1 / (inputs + 2);
+        let dy_curr = dy;
 
         // Create input nodes
-        for (let i = 1; i <= inputs; i++) {
-            this.nodes.push(new NodeGene(i, 1));
+        for (let i = 1; i <= inputs + 1; i++) {
+            this.nodes.push(new NodeGene(i, 0, dy_curr));
+            dy_curr += dy;
         }
 
-        // Add bias node
-        this.nodes.push(this.biasNode);
-
+        dy = 1 / (outputs + 1);
+        dy_curr = dy;
         // Create output nodes
         for (let i = inputs + 2; i < inputs + outputs + 2; i++) {
-            const outputNode = new NodeGene(i, 2);
+            const outputNode = new NodeGene(i, 1, dy_curr);
             this.nodes.push(outputNode);
+            dy_curr += dy;
         }
+
+        let connInnov = 1;
+        for (let i = 0; i < inputs + 1; i++) {
+            const from = this.nodes[i];
+
+            for (let j = inputs + 1; j < inputs + outputs + 1; j++) {
+                const to = this.nodes[j];
+                const conn = new ConnectionGene(
+                    connInnov,
+                    from.innov,
+                    to.innov,
+                    Math.random() * 2 - 1,
+                    true
+                );
+                from.conns.push(conn);
+                this.conns.push(conn);
+                connInnov++;
+            }
+        }
+    }
+
+    clone() {
+        const genome = new Genome(this.inputs, this.outputs, true);
+
+        genome.nodes = this.nodes.map((node) => node.clone());
+        genome.conns = this.conns.map((conn) => conn.clone());
+
+        genome.nodes.forEach((node) =>
+            node.conns.push(
+                ...genome.conns.filter((conn) => conn.from === node.innov)
+            )
+        );
+
+        return genome;
+    }
+
+    addFitness(fit) {
+        if (this.fitness + fit < 0) this.fitness = 0;
+        else this.fitness += fit;
     }
 
     /**
@@ -34,391 +76,244 @@ class Genome {
      * @returns Output values
      * @memberof Genome
      */
-    deduce(inputValues, option='raw') {
+    feedForward(inputValues) {
         if (inputValues.length !== this.inputs) {
-            const err = `Expected ${this.inputs} input values. Got ${inputValues.length}.`;
-            throw new Error(err);
+            throw new Error("The number of input values provided doesn't match the required input values.")
         }
 
-        // Set all values to zero
-        this.nodes.forEach(node => {
-            node.value = 0;
-        });
+        if (!inputValues.every(elem => typeof elem === "number")) {
+            throw new Error("Input values should be numbers");
+        }
 
-        // The bias node is always 1
-        this.biasNode.value = 1;
+        let table = {};
 
-        // Set values of input nodes
         for (let i = 0; i < this.inputs; i++) {
-            this.nodes[i].value = inputValues[i];
+            table[i + 1] = inputValues[i];
         }
 
-        // Feed-forward all neurons/nodes layerwise
-        for (let layer = 1; layer < this.totalLayers; layer++) {
-            const layerNodes = this.nodes.filter(node => node.layer === layer);
-            layerNodes.forEach(node => node.feedForward());
-        }
+        table[this.inputs + 1] = 1;
 
-        // Get the output Values
-        const outputValues = [];
+        for (const node of this.nodes) {
+            const fromVal = table[node.innov];
 
-        for (let i = this.inputs + 1; i < this.inputs + this.outputs + 1; i++) {
-            outputValues.push(this.nodes[i].value);
-        }
+            const feedFwdVal = node.activate(fromVal);
 
-        if (!['raw', 'argmax', 'argmin'].includes(option)) {
-            const err = `Expected one of 3 options (raw, argmax, argmin). Got ${option}.`;
-            throw new Error(err);
-        }
-
-        if (option === 'argmax') {
-            let maxVal = -(Infinity);
-            let idx = -1;
-
-            for (let i = 0; i < outputValues.length; i++) {
-                if (outputValues[i] > maxVal) {
-                    maxVal = outputValues[i];
-                    idx = i;
+            for (const conn of node.conns) {
+                if (!table[conn.to]) table[conn.to] = 0;
+                if (conn.enabled) {
+                    table[conn.to] += feedFwdVal * conn.weight;
                 }
             }
+        }
 
-            return idx;
+        const output = []
 
-        } else if (option === 'argmin') {
-            let minVal = Infinity;
-            let idx = -1;
+        for (let i = this.inputs + 2; i < this.inputs + this.outputs + 2; i++) {
+            output.push(this.nodes[i - 1].activate(table[i]));
+        }
 
-            for (let i = 0; i < outputValues.length; i++) {
-                if (outputValues[i] < minVal) {
-                    minVal = outputValues[i];
-                    idx = i;
-                }
-            }
-
-            return idx;
-
-        } else return outputValues;
+        return output;
     }
 
     /**
-     * Function that builds a genome from scratch given only the connection information.
-     * Used for building the Offspring resulting from a crossover between two parent genomes.
+     * Genome crossover method. Takes two Parent Genomes and returns the
+     * offspring genome.
      *
      * @static
-     * @param {number} inputs
-     * @param {number} outputs
-     * @param {ConnectionHistory[]} history
-     * @returns Genome
+     * @param {Genome} parent1 The first parent.
+     * @param {Genome} parent2 The second parent.
+     * @param {NEATSettings} settings Neat Settings.
+     * @returns {Genome} Offspring Genome.
      * @memberof Genome
      */
-    static build(inputs, outputs, history) {
-        // Create the offspring with input/output nodes and no connections.
-        const offspring = new Genome(inputs, outputs);
+    static crossover(parent1, parent2, settings) {
+        const [male, female] =
+            parent1.fitness > parent2.fitness
+                ? [parent1, parent2]
+                : [parent2, parent1];
 
-        offspring.nodes.filter(node => node.layer > 1).forEach(node => {
-            node.layer = history.totalLayers;
+        const offspringGenes = [];
+
+        const maleGenes = male.conns;
+        const femaleGenes = female.conns;
+
+        const fgTable = {};
+        
+
+        femaleGenes.forEach(conn => {
+            fgTable[conn.innov] = conn;
         });
 
-        offspring.totalLayers = history.totalLayers;
+        for (const gene of maleGenes) {
+            if (fgTable[gene.innov]) {
+                const fGene = fgTable[gene.innov];
 
-        for (const conn of history.offspringGenes) {
-            const fromNode = offspring.find(node => node.innovationNumber === conn.from);
-            let toNode = offspring.find(node => node.innovationNumber === conn.to);
+                const offspringGene =
+                    Math.random() < 0.5 ? gene.clone() : fGene.clone();
 
-            /*
-                Well here's the thing, lets say a Genome is mutating.
-                In case of a connection mutation, the connection is made between two nodes A and B that already exist within the Genome. 
-                So even if it's a new, never before seen connection, the innovation number for the connection is still gonna be higher 
-                than all other connections, including at least one for each those that have connections to A and B.
+                if (gene.enabled !== fGene.enabled) {
+                    if (Math.random() < settings.crossGeneActiveRate) {
+                        offspringGene.enable();
+                    } else {
+                        offspringGene.disable();
+                    }
+                }
 
-                In case of a node mutation, there are three things to remember :-
-                1) The node mutation always happens on an existing connection (A -> B), therefore no matter what innovation numbers
-                   we give to the two new connections, they are going to be higher than the original connection that's mutating.
-
-                2) Lets say the new node is C so now the connection is A -> C -> B. We're also making it so that A -> C will have
-                   a lower innovation number than C -> B.
-
-                3) A layer increment is done when there is a node mutation between the last and (last - 1) layers. If that's
-                   not the case, the new node's layer is one more than the original from_node. For example lets say we mutate
-                   a connection A -> C -> B where layer(A) = 1 and layer(B) = 6. In this case layer(C) = layer(A) + 1 = 2.
-                   This means that a fair bit of connections are going to exist between nodes in adjacent layers. Even if this
-                   is not the case for some connections, for example, in the previous example, the A -> C connection is adjacent
-                   since both nodes have a layer difference of 1, but the C -> B connection has a layer difference of 4, the node B
-                   didn't come to exist in layer 6 cuz it felt like it. There is innovation history that details exactly how B came to
-                   reside in layer 6. Node B wouldn't exist without this information.
-
-                Keeping this in mind, we can see that the increment in structural complexity is directly proportional to the
-                increment in the Innovation Numbers of connections and nodes. As we go from left to right in the innovation
-                history (ascending order of innovation numbers), the 'from' nodes are always going to exist within the genome
-                as we build it as long as we keep creating the 'to' nodes when we don't find em.
-                With this, we can rebuild any genome just with the offspring history while keeping layer information
-                intact as long as we follow the rules detailed above.
-            */
-            if (!toNode) {
-                toNode = new NodeGene(conn.to, conn.toLayer);
-                offspring.nodes.push(toNode);
+                offspringGenes.push(offspringGene);
+                continue;
             }
 
-            const connection = new ConnectionGene(
-                conn.innovationNumber, fromNode, toNode,
-                conn.weight, conn.enabled
-            );
+            offspringGenes.push(gene.clone());
+        }
 
-            offspring.connections.push(connection);
+        const offspring = new Genome(male.inputs, male.outputs, true);
+
+        offspring.nodes = male.nodes.map((node) => node.clone());
+        offspring.conns = offspringGenes;
+
+        for (const node of offspring.nodes) {
+            if (node.x === 1) continue;
+
+            offspring.conns
+                .filter((conn) => conn.from === node.innov)
+                .forEach((conn) => node.conns.push(conn));
         }
 
         return offspring;
     }
 
     /**
-     * Genome crossover method. Takes two Parent Genomes and returns the Genetic
-     * Information of the Offspring Genome.
-     * NOTE: Only the Genetic Information is returned. To build the offspring Genome,
-     * use the Genome.build() static method.
-     *
-     * @static
-     * @param {Genome} parent1 The first parent.
-     * @param {Genome} parent2 The second parent.
-     * @param {Object} settings Neat Settings.
-     * @memberof Genome
-     */
-    static crossover(parent1, parent2, settings) {
-        let male;
-        let female;
-
-        // I mean if we're mimicing biology...
-        // Plus this also simplifies things a bit down the road.
-        if (parent1.fitness >= parent2.fitness) {
-            male = parent1;
-            female = parent2;
-
-        } else {
-            male = parent2;
-            female = parent1;
-        }
-
-        const offspringGenes = [];
-
-        const maleGenes = male.connections;
-        const femaleGenes = female.connections;
-
-        let pt1 = 0;
-        let pt2 = 0;
-
-        while (pt1 < maleGenes.length && pt2 < femaleGenes.length) {
-            const gene1 = maleGenes[pt1];   // Male gene
-            const gene2 = femaleGenes[pt2]; // Female gene
-
-            /*
-                If both Innovation Numbers match, select the gene passed randomly from
-                both parents.
-                If the gene is disabled in both parents, there is a small chance of it being
-                enabled in the offspring, denoted by the 'disabledGeneEnableProb' argument.
-            */
-            if (gene1.innovationNumber == gene2.innovationNumber) {
-                const passedGene = Math.random() <= 0.5 ? gene1 : gene2;
-
-                const childGene = new OffspringHistory(
-                    passedGene.innovationNumber,
-                    passedGene.fromNode.innovationNumber,
-                    passedGene.toNode.innovationNumber,
-                    passedGene.weight,
-                    passedGene.enabled,
-                    passedGene.fromNode.layer,
-                    passedGene.toNode.layer
-                );
-
-                if (!gene1.enabled && !gene2.enabled && Math.random() <= settings.disabledGeneEnableProb) {
-                    childGene.enable();
-                }
-
-                offspringGenes.push(childGene);
-
-                const maleGenesEnd = pt1 === maleGenes.length - 1;
-                const femaleGenesEnd = pt2 === femaleGenes.length - 1;
-
-                if (maleGenesEnd && femaleGenesEnd) break;
-                if (!maleGenesEnd) pt1++;
-                if (!femaleGenesEnd) pt2++;
-
-            }    
-            /*
-                If the Innovation Number of the Male gene is higher than that of the Female gene
-                then we have two possibilities :-
-                1) If we have reached the end of the Female genes, the Male gene in question is
-                   an excess gene. Since the Male Genome has higher fitness, include this gene.
-                   Also increment pt1 to account for additional Male excess genes.
-                2) If we have not reached the end of the Female Genes then the Female gene is a
-                   disjoint gene. We don't know whether the Male gene at this point is matching,
-                   disjoint or excess, so just increment pt2 for now.
-            */
-            else if (gene1.innovationNumber > gene2.innovationNumber) {
-                if (p2 === femaleGenes.length - 1) {
-                    const passedGene = gene1;
-
-                    const childGene = new OffspringHistory(
-                        passedGene.innovationNumber,
-                        passedGene.fromNode.innovationNumber,
-                        passedGene.toNode.innovationNumber,
-                        passedGene.weight,
-                        passedGene.enabled,
-                        passedGene.fromNode.layer,
-                        passedGene.toNode.layer
-                    );
-
-                    offspringGenes.push(childGene);
-                    pt1++;
-
-                } else {
-                    pt2++;
-                }
-            }
-            /*
-                If the Innovation Number of the Female gene is higher than the Male gene then we
-                again have two possibilities :-
-                1) If we have reached the end of the Male genes, then all the remaining Female genes
-                   are excess genes, hence break the loop here.
-                2) If we have not reached the end of the Male Genes then we have a disjoint Male Gene.
-                   Include it in the offspring and increment pt1.
-            */
-            else {
-                if (p1 === maleGenes.length - 1) break;
-
-                const passedGene = gene1;
-
-                const childGene = new OffspringHistory(
-                    passedGene.innovationNumber,
-                    passedGene.fromNode.innovationNumber,
-                    passedGene.toNode.innovationNumber,
-                    passedGene.weight,
-                    passedGene.enabled,
-                    passedGene.fromNode.layer,
-                    passedGene.toNode.layer
-                );
-
-                offspringGenes.push(childGene);
-                pt1++;
-            }
-        }
-
-        return {
-            offspringGenes: offspringGenes,
-            totalLayers: male.totalLayers
-        };
-    }
-
-    /**
-     * Sets the Species of the Genome.
-     *
-     * @param {number} speciesID The ID of the Species.
-     * @memberof Genome
-     */
-    setSpecies(speciesID) {
-        this.speciesID = speciesID;
-    }
-
-    /**
      * Mutates a new connection within the Genome.
      *
-     * @param {InnovationHistory} innovationHistory The history of Innovation.
-     * @param {number} [times=1] The number of times the function has been called. Do not supply this argument to the function.
+     * @param {InnovationHistory} hist The history of Innovation.
      * @memberof Genome
      */
-    mutateConnection(innovationHistory, times=1) {
-        // If we have tried 5 times then fuck it.
-        if (times === 6) return;
+    mutateConnection(hist) {
+        const fromNodePool = this.nodes.filter((node) => {
+            if (node.x === 1) return false;
 
-        // Select a From Node randomly
-        let fromNode = this.nodes[Math.floor(Math.random() * this.nodes.length)];
+            return (
+                this.nodes
+                    .filter((n) => n.x > node.x)
+                    .filter(
+                        (n) =>
+                            !Boolean(
+                                this.conns.find(
+                                    (conn) =>
+                                        conn.from === node.innov &&
+                                        conn.to === n.innov
+                                )
+                            )
+                    ).length > 0
+            );
+        });
 
-        // And keep selecting it until we get a node that's not in the last layer (Output layer)
-        while (fromNode.layer === this.totalLayers) {
-            fromNode = this.nodes[Math.floor(Math.random() * this.nodes.length)];
-        }
+        if (fromNodePool.length === 0) return;
 
-        /*
-            Once the From node is selected, we need to select a To node. Here we create an
-            array of valid To nodes. We want nodes that are in a layer greater than that of
-            the From node and also aren't already connected to the From node.
-        */
-        const toNodeOptions = this.nodes.filter(node => node.layer > fromNode.layer)
-                                .filter(node => !this.allConnections.find(conn => conn.fromNode === fromNode && conn.toNode === node));
+        const fromNode =
+            fromNodePool[Math.floor(Math.random() * fromNodePool.length)];
 
-        // If no valid To nodes are found, rerun the function with the times value incremented.
-        if (toNodeOptions.length === 0) {
-            return this.addConnection(innovationHistory, times + 1);
-        }
+        const toNodePool = this.nodes
+            .filter((n) => n.x > fromNode.x)
+            .filter(
+                (n) =>
+                    !Boolean(
+                        this.conns.find(
+                            (c) => c.from === fromNode.innov && c.to === n.innov
+                        )
+                    )
+            );
 
-        // Randomly choose a To node from the options.
-        let toNode = toNodeOptions[Math.floor(Math.random() * toNodeOptions.length)];
+        const toNode =
+            toNodePool[Math.floor(Math.random() * toNodePool.length)];
 
-        // Get the Connection Innovation Number.
-        const innovationNumber = innovationHistory.addConnection(fromNode, toNode);
+        let connInnov = hist.addConnection(fromNode.innov, toNode.innov);
 
-        const connection = new ConnectionGene(innovationNumber, fromNode, toNode, Math.random(), true);
+        let conn = new ConnectionGene(
+            connInnov,
+            fromNode.innov,
+            toNode.innov,
+            Math.random() * 2 - 1,
+            true
+        );
 
-        // Add the Connection Gene to the genome.
-        this.connections.push(connection);
+        this.conns.push(conn);
+        fromNode.conns.push(conn);
+
+        this.conns = this.conns.sort((a, b) => a.innov - b.innov);
     }
 
     /**
      * Mutates a new node onto an existing connection, splitting it into two connections.
      *
-     * @param {InnovationHistory} innovationHistory The history of Innovation.
+     * @param {InnovationHistory} hist The history of Innovation.
      * @memberof Genome
      */
-    mutateNode(innovationHistory) {
-        // If there are no connections then we cannot mutate a node so return.
-        if (this.connections.length === 0) return;
+    mutateNode(hist) {
+        const conn = this.conns[Math.floor(Math.random() * this.conns.length)];
 
-        // Get a random connection to mutate and disable it.
-        const connToMutate = this.connections[Math.floor(Math.random() * this.connections.length)];
-        connToMutate.disable();
+        const mutInfo = hist.addNode(conn);
 
-        // Get the innovation number data of the two new connections and the new node.
-        const mutationInnovs = innovationHistory.addNodeOn(connToMutate);
+        const leftNode = this.nodes.find((n) => n.innov === conn.from);
+        const rightNode = this.nodes.find((n) => n.innov === conn.to);
 
-        const fromNode = connToMutate.fromNode;
-        const toNode = connToMutate.toNode;
+        const newNode = new NodeGene(
+            mutInfo.node,
+            (leftNode.x + rightNode.x) / 2,
+            (leftNode.y + rightNode.y) / 2
+        );
 
-        // Increment layers if the from and to nodes were adjacent.
-        if (toNode.layer - fromNode.layer === 1) {
-            this.nodes.filter(node => node.layer > fromNode.layer).forEach(node => {
-                node.layer++;
-            });
-            this.totalLayers++;
-        }
+        const leftConn = new ConnectionGene(
+            mutInfo.left,
+            leftNode.innov,
+            mutInfo.node,
+            1,
+            true
+        );
 
-        // Add in everything.
-        const newNode = new NodeGene(mutationInnovs.node, fromNode.layer + 1);
-        const conn1 = new ConnectionGene(mutationInnovs.conn1, fromNode, newNode, 1, true);
-        const conn2 = new ConnectionGene(mutationInnovs.conn2, newNode, toNode, connToMutate.weight, true);
+        const rightConn = new ConnectionGene(
+            mutInfo.right,
+            mutInfo.node,
+            rightNode.innov,
+            conn.weight,
+            true
+        );
 
+        conn.disable();
+
+        leftNode.conns.push(leftConn);
+        newNode.conns.push(rightConn);
         this.nodes.push(newNode);
-        this.connections.push(conn1, conn2);
+        this.conns.push(leftConn);
+        this.conns.push(rightConn);
+
+        this.nodes = this.nodes.sort((a, b) => a.x - b.x);
+        this.conns = this.conns.sort((a, b) => a.innov - b.innov);
     }
 
     /**
      * Mutates the Genome. Includes weight mutation, Node mutation and Connection
      * mutation.
      *
-     * @param {InnovationHistory} innovationHistory The history of Innovation.
-     * @param {Object} settings Neat Settings.
+     * @param {InnovationHistory} hist The history of Innovation.
+     * @param {NEATSettings} settings Neat Settings.
      * @memberof Genome
      */
-    mutate(innovationHistory, settings) {
+    mutate(hist, settings) {
         const rand = Math.random;
 
-        if (rand() < settings.weightMutationRate) {
-            this.connections.forEach(conn => conn.mutateWeight(settings));
+        for (const conn of this.conns) {
+            if (rand() < settings.weightMutRate) {
+                conn.mutateWeight(settings);
+            }
         }
 
-        if (rand() < settings.connectionMutationRate) {
-            this.mutateConnection(innovationHistory);
+        if (rand() < settings.connMutRate) {
+            this.mutateConnection(hist);
         }
 
-        if (rand() < settings.nodeMutationRate) {
-            this.mutateNode(innovationHistory);
+        if (rand() < settings.nodeMutRate) {
+            this.mutateNode(hist);
         }
     }
 }

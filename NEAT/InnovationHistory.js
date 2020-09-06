@@ -1,65 +1,64 @@
 class InnovationHistory {
     constructor(inputs, outputs) {
-        this.nextNodeInnovNumber = inputs + outputs + 2;
-        this.nextConnInnovNumber = 1;
+        this.nextNodeInnov = inputs + outputs + 2;
+        this.nextConnInnov = (inputs + 1) * outputs + 1;
 
         this.history = [];
-    }
 
-    addConnection(fromNode, toNode) {
-        const existingConnection = this.history.find(conn => conn.equals(connection));
-
-        if (!existingConnection) {
-            const newHistory = new ConnectionHistory(
-                this.nextConnInnovNumber,
-                fromNode.innovationNumber,
-                toNode.innovationNumber
-            );
-            this.history.push(newHistory);
-            const innovationNumber = this.nextConnInnovNumber;
-            this.nextConnInnovNumber++;
-            return innovationNumber;
-
-        } else {
-            return existingConnection.innovationNumber;
+        let innov = 1;
+        for (let i = 1; i < inputs + 2; i++) {
+            for (let j = inputs + 2; j < inputs + outputs + 2; j++) {
+                this.history.push(new ConnectionHistory(innov, i, j));
+                innov++;
+            }
         }
     }
 
-    addNodeOn(connection) {
-        const fromNode = connection.fromNode;
-        const toNode = connection.toNode;
+    addConnection(from, to) {
+        const existingConnection = this.history.find(conn => conn.from === from && conn.to === to);
 
-        const fromConnections = this.history.filter(conn => conn.from === fromNode.innovationNumber);
-        const toConnections = this.history.filter(conn => conn.to === toNode.innovationNumber);
+        if (!existingConnection) {
+            const newHistory = new ConnectionHistory(
+                this.nextConnInnov,
+                from,
+                to,
+            );
+            this.history.push(newHistory);
+            const innov = this.nextConnInnov;
+            this.nextConnInnov++;
+            return innov;
 
-        let existingConn1;
-        let existingConn2;
+        } else {
+            return existingConnection.innov;
+        }
+    }
 
-        connLoop: for (const fromConn of fromConnections) {
-            for (const toConn of toConnections) {
-                if (fromConn.to === toConn.from) {
-                    existingConn1 = fromConn;
-                    existingConn2 = toConn;
-                    break connLoop;
+    addNode(connection) {
+        const from = connection.from;
+        const to = connection.to;
+
+        const fromConnections = this.history.filter(conn => conn.from === from);
+        const toConnections = this.history.filter(conn => conn.to === to);
+
+        for (const conn1 of fromConnections) {
+            for (const conn2 of toConnections) {
+                if (conn1.to === conn2.from) {
+                    return {
+                        left: conn1.innov,
+                        right: conn2.innov,
+                        node: conn1.to
+                    };
                 }
             }
         }
 
-        if (existingConn1) {
-            return {
-                conn1: existingConn1.innovationNumber,
-                conn2: existingConn2.innovationNumber,
-                node: existingConn1.to
-            };
-        }
+        const left = this.nextConnInnov++;
+        const right = this.nextConnInnov++;
+        const node = this.nextNodeInnov++;
 
-        const node = this.nextNodeInnovNumber++;
-        const conn1 = this.nextConnInnovNumber++;
-        const conn2 = this.nextConnInnovNumber++;
+        this.history.push(new ConnectionHistory(left, connection.from, node));
+        this.history.push(new ConnectionHistory(right, node, connection.to));
 
-        this.history.push(new ConnectionHistory(conn1, fromNode.innovationNumber, node));
-        this.history.push(new ConnectionHistory(conn2, node, toNode.innovationNumber));
-
-        return { conn1, conn2, node };
+        return { left, right, node };
     }
 }

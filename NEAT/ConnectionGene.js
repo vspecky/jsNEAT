@@ -1,13 +1,20 @@
 class ConnectionGene {
-    constructor(innovationNumber, fromNode, toNode, weight, enabled=true) {
-        this.innovationNumber = innovationNumber;
-        this.fromNode = fromNode;
-        this.toNode = toNode;
+    constructor(innov, from, to, weight, enabled=true) {
+        this.innov = innov;
+        this.from = from;
+        this.to = to;
         this.weight = weight;
         this.enabled = enabled;
+    }
 
-        // Add the connection gene to the from node's array. No hassle
-        this.fromNode.connections.push(this);
+    /**
+     * Clone this ConnectionGene
+     *
+     * @return {ConnectionGene} 
+     * @memberof ConnectionGene
+     */
+    clone() {
+        return new ConnectionGene(this.innov, this.from, this.to, this.weight, this.enabled);
     }
 
     /**
@@ -40,16 +47,17 @@ class ConnectionGene {
     /**
      * Mutate the Weight of this connection.
      *
-     * @param {Object} settings
+     * @param {NEATSettings} settings
      * @memberof ConnectionGene
      */
     mutateWeight(settings) {
         if (Math.random() < settings.weightShiftRate) {
-            const mag = settings.weightShiftMagnitude;
-            this.weight += Math.random() < 5 ? mag : -mag;
-
+            const u1 = 1 - Math.random();
+            const u2 = 1 - Math.random();
+            const mag = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2) / 20;
+            this.weight = Math.max(-1, Math.min(this.weight + mag, 1));
         } else {
-            this.weight = Math.random();
+            this.weight = Math.random() * 2 - 1;
         }
     }
 }
